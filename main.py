@@ -5,6 +5,7 @@ import vk_api
 import telegram
 from dotenv import load_dotenv
 import service_functions
+import glob
 
 
 VERSION_VKONTAKTE = '5.52'
@@ -36,36 +37,39 @@ def upload_photo_to_facebook(params, filename):
             return dict_data['id']
 
 
-def post_vkontakte(params, message, filename):
+def post_vkontakte(params, message, images):
     vk_session = vk_api.VkApi(token=params['vk_access_token'])
     vk = vk_session.get_api()
-    if filename:
-        photo_to_post = upload_photo_to_vk(vk_session, params, filename)
+    photos_to_post = [upload_photo_to_vk(vk_session, params, image) for image in images if images]
+    attachments = [service_functions.get_attachment(photo_to_post) for photo_to_post in photos_to_post if photos_to_post]
     vk.wall.post(
         owner_id=-params['vk_group_id'],
-        attachments=service_functions.get_attachment(photo_to_post),
+        attachments=','.join(attachments),
         message=message
     )
 
 
-def post_telegram(params, message, filename):
-    telegram_bot = telegram.Bot(token=params['telegram_access_token'])
+def post_telegram(params, message, images):
+    proxy = telegram.utils.request.Request(proxy_url=os.environ.get('PROXY'))
+    telegram_bot = telegram.Bot(token=params['telegram_access_token'], request=proxy)
+    for image in images:
+        with open(image, 'rb') as file_handler:
+            telegram_bot.sendPhoto(chat_id=params['telegram_chat_id'], photo=file_handler)
     telegram_bot.sendMessage(chat_id=params['telegram_chat_id'], text=message)
-    if filename:
-        telegram_bot.sendPhoto(chat_id=params['telegram_chat_id'], photo=open(filename, 'rb'))
 
 
-def post_facebook(params, message, filename):
+def post_facebook(params, message, images):
     url = 'https://graph.facebook.com/v7.0/{0}/feed'.format(params['facebook_group_id'])
     facebook_params = {
         'access_token': params['facebook_access_token'],
         'facebook_group_id': params['facebook_group_id'],
         'message': message
     }
-    if filename:
-        photo_id = upload_photo_to_facebook(facebook_params, filename)
-        if photo_id:
-            facebook_params['attached_media'] = "[{'media_fbid':'%s'}]" % str(photo_id)
+    photo_ids = [upload_photo_to_facebook(facebook_params, image) for image in images if images]
+    attachments = ["{'media_fbid':'%s'}" % str(photo_id) for photo_id in photo_ids if photo_ids]
+    if not attachments:
+        raise ValueError('Отсутствуют изображения! Публикация в facebook не выполнена!')
+    facebook_params['attached_media'] = '[%s]' % ','.join(attachments)
 
     service_functions.query_to_site(url, facebook_params)
 
@@ -80,9 +84,9 @@ def initialize_logger():
     logger.addHandler(handler)
 
 
-def post_on_social_media(posting_function, params, message, filename, title_of_site):
+def post_on_social_media(posting_function, params, message, images, title_of_site):
     try:
-        posting_function(params, message, filename)
+        posting_function(params, message, images)
     except (vk_api.VkApiError, vk_api.ApiHttpError, vk_api.AuthError) as error:
         logger.error('Ошибка публикации поста на сайт вконтакте: {0}'.format(error))
     except telegram.TelegramError as error:
@@ -91,6 +95,8 @@ def post_on_social_media(posting_function, params, message, filename, title_of_s
         logger.error('Ошибка загрузки данных на сайт: {0}'.format(error))
     except (KeyError, TypeError) as error:
         logger.error('Ошибка загрузки или публикации поста: {0}'.format(error))
+    except ValueError as error:
+        logger.error(f'{error}')
     except OSError as error:
         logger.error('Ошибка чтения файлов с содержимым поста: {0}'.format(error))
     else:
@@ -114,11 +120,11 @@ def main():
     }
 
     message = service_functions.get_message()
-    filename = service_functions.get_image()
+    images = glob.glob('images/*.*')
 
-    post_on_social_media(post_vkontakte, params, message, filename, 'vk')
-    post_on_social_media(post_telegram, params, message, filename, 'telegram')
-    post_on_social_media(post_facebook, params, message, filename, 'facebook')
+    post_on_social_media(post_vkontakte, params, message, images, 'vk')
+    post_on_social_media(post_telegram, params, message, images, 'telegram')
+    post_on_social_media(post_facebook, params, message, images, 'facebook')
 
 
 if __name__ == '__main__':

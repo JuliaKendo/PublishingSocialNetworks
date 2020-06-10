@@ -1,11 +1,4 @@
 import requests
-import glob
-
-
-def get_image():
-    images = glob.glob('images/*.*')
-    if images:
-        return images[0]
 
 
 def get_message():
