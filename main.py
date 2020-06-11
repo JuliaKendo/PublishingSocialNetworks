@@ -67,8 +67,8 @@ def post_facebook(params, message, images):
     }
     photo_ids = [upload_photo_to_facebook(facebook_params, image) for image in images if images]
     attachments = ["{'media_fbid':'%s'}" % str(photo_id) for photo_id in photo_ids if photo_ids]
-    if not attachments:
-        raise ValueError('Отсутствуют изображения! Публикация в facebook не выполнена!')
+    if images and not attachments:
+        raise ValueError('Ошибка загрузки изображений! Публикация в facebook не выполнена!')
     facebook_params['attached_media'] = '[%s]' % ','.join(attachments)
 
     service_functions.query_to_site(url, facebook_params)
