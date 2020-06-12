@@ -1,8 +1,8 @@
 import requests
 
 
-def get_message():
-    with open("message.txt", "r") as file_handler:
+def get_message(filename):
+    with open(filename, "r") as file_handler:
         return file_handler.read()
 
 
